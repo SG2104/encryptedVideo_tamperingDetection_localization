@@ -1,0 +1,17 @@
+// System Design Diagram
+digraph {
+	A [label=User]
+	B [label="Encryption Module"]
+	C [label="Cloud Storage (AWS S3)"]
+	D [label="Cloud Processing (AWS Lambda)"]
+	E [label="Notification System"]
+	F [label="User Interface (Optional)"]
+	A -> B [label="Upload raw video"]
+	B -> C [label="AES encryption
+SHA-256 hash generation
+Watermark embedding"]
+	C -> D [label="Retrieve data"]
+	D -> E [label="Tampering detection and localization"]
+	E -> A [label=Alert]
+	E -> F [label="Optional: Visualize tampering logs"]
+}
