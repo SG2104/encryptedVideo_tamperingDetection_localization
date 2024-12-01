@@ -6,9 +6,10 @@ import cv2
 import numpy as np  # Import numpy for array manipulation
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
+from flask_cors import CORS  # Import CORS
 
 app = Flask(__name__)
-
+CORS(app)
 # S3 Configuration
 BUCKET_NAME = "encrypted-video-storage-crypto"
 
@@ -50,8 +51,8 @@ def upload_video():
         process_video(video_path, encrypted_video_path, hash_file_path, key)
 
         # Upload encrypted video and hash file to S3
-        upload_to_s3(encrypted_video_path, BUCKET_NAME, os.path.basename(encrypted_video_path))
-        upload_to_s3(hash_file_path, BUCKET_NAME, os.path.basename(hash_file_path))
+        upload_to_s3(encrypted_video_path, BUCKET_NAME, os.path.basename(encrypted_video_path),'videos/')
+        upload_to_s3(hash_file_path, BUCKET_NAME, os.path.basename(hash_file_path),'hashes/')
 
         return jsonify({"message": "Video uploaded and processed successfully", "key": key.hex()})
     except Exception as e:
@@ -113,13 +114,135 @@ def process_video(video_path, output_encrypted_video_path, hash_file_path, key):
         for i, h in enumerate(frame_hashes):
             f.write(f"Frame {i}: {h}\n")
 
-def upload_to_s3(file_path, bucket_name, object_name=None):
+def upload_to_s3(file_path, bucket_name, object_name=None,folder_name=''):
+    FILE_PATH = folder_name+object_name
     if object_name is None:
         object_name = os.path.basename(file_path)
     try:
-        s3_client.upload_file(file_path, bucket_name, object_name)
+        s3_client.upload_file(file_path, bucket_name, FILE_PATH)
+        print(f"Uploaded {file_path} to s3://{bucket_name}/{FILE_PATH}")
     except Exception as e:
         print(f"Error uploading to S3: {e}")
+
+# Tamper Video
+@app.route('/simulate-tampering', methods=['POST'])
+def simulate_tampering():
+    try:
+        # Get input keys
+        video_key = request.json['video_key']
+        tampered_key = f"tampered_{video_key.split('/')[-1]}"
+        
+        # Fetch video from S3
+        video_obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=video_key)
+        video_stream = io.BytesIO(video_obj['Body'].read())
+        
+        # Simulate tampering
+        tampered_video_stream = io.BytesIO()
+        cap = cv2.VideoCapture(video_stream)
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        writer = cv2.VideoWriter(tampered_video_stream, fourcc, fps, (width, height))
+
+        frame_count = 0
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            # Tamper a random frame
+            if frame_count == 5:  # Example: Tamper 5th frame
+                frame[:, :, 0] = 255 - frame[:, :, 0]
+
+            writer.write(frame)
+            frame_count += 1
+
+        cap.release()
+        writer.release()
+
+        # Upload tampered video to S3
+        tampered_video_stream.seek(0)
+        s3_client.put_object(Bucket=BUCKET_NAME, Key=f"videos/{tampered_key}", Body=tampered_video_stream.getvalue())
+
+        return jsonify({"message": "Tampering simulation completed", "tampered_video_key": f"videos/{tampered_key}"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Detect Tampering
+@app.route('/detect-tampering', methods=['POST'])
+def detect_tampering():
+    try:
+        video_key = request.json['video_key']
+        hash_key = request.json['hash_key']
+
+        # Fetch video and hash file from S3
+        video_obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=video_key)
+        video_stream = io.BytesIO(video_obj['Body'].read())
+        hash_obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=hash_key)
+        original_hashes = hash_obj['Body'].read().decode('utf-8').splitlines()
+        original_hashes = [line.split(": ")[1] for line in original_hashes]
+
+        # Detect tampering
+        tampered_frames = []
+        cap = cv2.VideoCapture(video_stream)
+        frame_count = 0
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            frame_bytes = frame.tobytes()
+            recalculated_hash = hashlib.sha256(frame_bytes).hexdigest()
+
+            if recalculated_hash != original_hashes[frame_count]:
+                tampered_frames.append(frame_count)
+
+            frame_count += 1
+
+        cap.release()
+        return jsonify({"tampered_frames": tampered_frames})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Localize Tampering
+@app.route('/localize-tampering', methods=['POST'])
+def localize_tampering():
+    try:
+        video_key = request.json['video_key']
+        tampered_frames = request.json['tampered_frames']
+
+        # Fetch tampered video from S3
+        video_obj = s3_client.get_object(Bucket=BUCKET_NAME, Key=video_key)
+        video_stream = io.BytesIO(video_obj['Body'].read())
+
+        # Localize tampering
+        localized_changes = {}
+        cap = cv2.VideoCapture(video_stream)
+
+        for frame_idx in tampered_frames:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+            ret, frame = cap.read()
+            if not ret:
+                continue
+
+            localized_changes[frame_idx] = []
+            block_size = 16
+            height, width, _ = frame.shape
+
+            for y in range(0, height, block_size):
+                for x in range(0, width, block_size):
+                    block = frame[y:y+block_size, x:x+block_size].tobytes()
+                    block_hash = hashlib.sha256(block).hexdigest()
+
+                    # Example: If block hash does not match, it's tampered
+                    if block_hash != "expected_block_hash":  # Replace with actual hash comparison logic
+                        localized_changes[frame_idx].append((x, y))
+
+        cap.release()
+        return jsonify({"localized_changes": localized_changes})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
