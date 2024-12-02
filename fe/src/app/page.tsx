@@ -1,5 +1,4 @@
-// import Image from "next/image";
-
+"use client";
 import ChooseFile from "@/components/chooseFile";
 
 export default function Home() {

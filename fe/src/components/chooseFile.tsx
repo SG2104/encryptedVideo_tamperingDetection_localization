@@ -8,6 +8,11 @@ import { VscLoading } from "react-icons/vsc";
 const ChooseFile = () => {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+  const [tamperingInfo, setTamperingInfo] = useState<{
+    missingFrames: string;
+    tamperedFrames: string;
+  } | null>(null);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) {
       return; // if there is no file, do nothing
@@ -16,6 +21,7 @@ const ChooseFile = () => {
 
     if (selectedFile && selectedFile.type === "video/mp4") {
       setFile(selectedFile); // Set file
+      setTamperingInfo(null);
     } else {
       alert("Please upload a valid .mp4 file.");
     }
@@ -32,24 +38,60 @@ const ChooseFile = () => {
 
     try {
       setLoading(true);
-      await axios.post("http://127.0.0.1:5000/upload", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-        onUploadProgress: (progressEvent) => {
-          const progress = Math.round(
-            (progressEvent.loaded / progressEvent.total!) * 100
-          );
-          console.log(`Upload Progress: ${progress}%`);
-        },
-      });
-      alert("File uploaded successfully!");
+      const response = await axios.post(
+        "http://127.0.0.1:5000/upload",
+        formData,
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+        }
+      );
 
+      const { message = "No message provided", status } = response.data || {};
+
+      if (status === "unchanged") {
+        alert(message || "File hasn't changed.");
+      } else if (status === "modified") {
+        alert(message ||"File exists, and modified!");
+        setTamperingInfo({
+          missingFrames: response.data.missing_frames.join(", "),
+          tamperedFrames: response.data.tampered_frames.join(", "),
+        });
+      } else if (status === "uploaded") {
+        alert(message || "File uploaded and processed successfully!");
+        setTamperingInfo(null);
+      }
     } catch (error) {
-      setLoading(false);
-      console.error("Error uploading file:", error);
+      const errorMessage = (error as Error)?.message || "Error during upload. Please try again.";
+      alert(errorMessage);
     } finally {
       setLoading(false);
+    }
+  };
+  const handleDownload = async () => {
+    if (!file) {
+      alert("No file selected to download.");
+      return;
+    }
+
+    try {
+      const response = await axios.get("http://127.0.0.1:5000/download", {
+        params: { filename: `encrypted_${file.name}` },
+      });
+
+      if (response.data.url) {
+        // Trigger file download
+        const link = document.createElement("a");
+        link.href = response.data.url;
+        link.download = `encrypted_${file.name}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        alert("Failed to fetch the download URL.");
+      }
+    } catch (error) {
+      console.error("Error during download:", error);
+      alert("Error during download. Please try again.");
     }
   };
 
@@ -106,9 +148,21 @@ const ChooseFile = () => {
           className={`cursor-pointer flex gap-2 items-center rounded-md bg-slate-800 py-2 px-4 border border-transparent text-base text-white shadow-md hover:shadow-lg focus:bg-slate-700 focus:shadow-none active:bg-slate-700 hover:bg-slate-700 active:shadow-none disabled:pointer-events-none disabled:opacity-50 disabled:shadow-none w-1/6`}
         >
           <GoDownload size={20} />
-          <button className="text-md font-medium">Download</button>
+          <button
+            onClick={handleDownload}
+            disabled={loading}
+            className="text-md font-medium"
+          >
+            Download
+          </button>
         </div>
       </div>
+      {tamperingInfo && (
+        <div className="bg-slate-400 text-white p-4 rounded-lg shadow-md w-1/2 m-5 mx-auto">
+          <h2 className="text-lg font-semibold mb-2">Tampering Detected</h2>
+          <p>Missing Frames: {tamperingInfo.missingFrames}</p>
+        </div>
+      )}
     </>
   );
 };
