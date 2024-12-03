@@ -105,10 +105,10 @@ def upload_video():
                 }), 200
 
             return jsonify({
-                "message": "File exists, and modified",
+                "message": "File has been tampered",
                 "status": "modified",
                 "missing_frames": tampering_info["missing_frames"],
-                "tampered_frames": tampering_info["tampered_frames"]
+                "tampered_frames": tampering_info["tampered_frames"],
             }), 200
         except ClientError as e:
             if e.response['Error']['Code'] != '404':

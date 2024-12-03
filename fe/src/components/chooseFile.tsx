@@ -49,9 +49,9 @@ const ChooseFile = () => {
       const { message = "No message provided", status } = response.data || {};
 
       if (status === "unchanged") {
-        alert(message || "File hasn't changed.");
+        alert(message || "File already exists but has not been tampered!");
       } else if (status === "modified") {
-        alert(message ||"File exists, and modified!");
+        alert(message ||"File has been tampered!");
         setTamperingInfo({
           missingFrames: response.data.missing_frames.join(", "),
           tamperedFrames: response.data.tampered_frames.join(", "),
