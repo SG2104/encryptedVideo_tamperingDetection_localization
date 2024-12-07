@@ -13,13 +13,13 @@ app = Flask(__name__)
 CORS(app)
 
 # S3 Configuration
-BUCKET_NAME = "encrypted-video-storage-crypto"
+BUCKET_NAME = "your-bucket-name"
 
 # AWS S3 Client
 s3_client = boto3.client(
     "s3",
-    aws_access_key_id="AKIAU6GD35VQLH463WPB",
-    aws_secret_access_key="64dDIHIyvtLG+s/rdOhkCBtcGAGE8yn8T/t0EIPG",
+    aws_access_key_id="your-access-key-id",
+    aws_secret_access_key="your-secret-access-key",
     region_name="us-east-1"
 )
 
